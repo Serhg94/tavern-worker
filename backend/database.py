@@ -1,7 +1,7 @@
-from sqlmodel import SQLModel, create_engine, Session
-from models import * # Import models to register them
+from sqlmodel import Session, SQLModel, create_engine
 
 from config import settings
+from models import *  # noqa: F403
 
 sqlite_file_name = settings.DATABASE_FILE
 sqlite_url = f"sqlite:///{sqlite_file_name}"

@@ -21,6 +21,9 @@ j
 *.njsproj
 *.sln
 *.sw?
-__pycache__
 
+venv
+__pycache__
+.ruff_cache
+.mypy_cache
 database.db

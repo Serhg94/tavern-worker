@@ -16,6 +16,8 @@ import {
     TextField,
     Grid2 as Grid,
     Chip,
+    useTheme,
+    useMediaQuery,
 } from '@mui/material';
 import {
     Add as AddIcon,
@@ -71,12 +73,22 @@ const Home = () => {
         }
     };
 
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
     return (
         <Container maxWidth="lg" sx={{ py: 4 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{
+                display: 'flex',
+                flexDirection: isMobile ? 'column' : 'row',
+                justifyContent: 'space-between',
+                alignItems: isMobile ? 'stretch' : 'center',
+                mb: 4,
+                gap: isMobile ? 2 : 0
+            }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, justifyContent: isMobile ? 'center' : 'flex-start' }}>
                     <MenuBookIcon sx={{ fontSize: 40, color: 'primary.main' }} />
-                    <Typography variant="h3" component="h1" fontWeight="bold" color="primary">
+                    <Typography variant="h3" component="h1" fontWeight="bold" color="primary" sx={{ fontSize: isMobile ? '2rem' : '3rem' }}>
                         TavernWorker RPG
                     </Typography>
                 </Box>
@@ -85,6 +97,7 @@ const Home = () => {
                     startIcon={<AddIcon />}
                     onClick={() => setIsCreating(true)}
                     size="large"
+                    fullWidth={isMobile}
                 >
                     New Adventure
                 </Button>

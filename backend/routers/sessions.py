@@ -1,8 +1,9 @@
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
-from typing import List
+
 from database import get_session
-from models import GameSession, ChatMessage, Character, JournalEntry
+from models import GameSession
 
 router = APIRouter(
     prefix="/sessions",
@@ -18,7 +19,7 @@ def create_session(session_data: GameSession, db: Session = Depends(get_session)
     db.refresh(session_data)
     return session_data
 
-@router.get("/", response_model=List[GameSession])
+@router.get("/", response_model=list[GameSession])
 def read_sessions(skip: int = 0, limit: int = 100, db: Session = Depends(get_session)):
     """List all game sessions."""
     sessions = db.exec(select(GameSession).offset(skip).limit(limit)).all()

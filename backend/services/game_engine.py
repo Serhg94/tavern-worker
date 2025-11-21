@@ -1,16 +1,23 @@
-from sqlmodel import Session, select
-from typing import List, Optional
-from models import GameSession, ChatMessage, JournalEntry, Character
-from services.llm import ollama_service
 import logging
+from datetime import datetime
+
+from sqlmodel import Session, select
+
+from config import settings
+from models import ChatMessage, GameSession, JournalEntry, StateChangeLog
+from services.context_builder import ContextBuilder
+from services.journal_manager import JournalManager
+from services.llm import ollama_service
 
 logger = logging.getLogger(__name__)
 
 class GameEngine:
     def __init__(self, db: Session):
         self.db = db
+        self.context_builder = ContextBuilder(db)
+        self.journal_manager = JournalManager(db)
 
-    def process_action(self, session_id: int, user_input: str) -> str:
+    def process_action(self, session_id: int, user_input: str, language: str = "en") -> str:
         """
         Main game loop:
         1. Get session and context.
@@ -31,10 +38,15 @@ class GameEngine:
         self.db.commit()
 
         # 2. Build Context
-        context = self._build_context(session)
+        context = self.context_builder.build_context(session)
 
         # 3. Generate Response
-        ai_response_text = ollama_service.generate_response(user_input, context)
+        ai_response_text = ollama_service.generate_response(
+            player_action=user_input,
+            world_state=context["world_state"],
+            conversation_history=context["conversation_history"],
+            language=language
+        )
 
         # 4. Save AI Message
         ai_msg = ChatMessage(session_id=session_id, role="assistant", content=ai_response_text)
@@ -42,148 +54,107 @@ class GameEngine:
         self.db.commit()
 
         # 5. Update Journal/World State (Async or Sync)
-        self._update_world_state(session, user_input, ai_response_text)
+        self.journal_manager.update_world_state(session, user_input, ai_response_text, ai_msg, language=language)
 
         # 6. Check for Summarization
-        self._check_summarization(session)
+        self._check_summarization(session, language=language)
 
         return ai_response_text
 
-    def _build_context(self, session: GameSession) -> str:
-        """Constructs the context string for the LLM."""
-        # Start with Session Summary if exists
-        context_parts = []
-        if session.summary:
-            context_parts.append(f"PREVIOUSLY ON:\n{session.summary}")
-        
-        # Add Character Info
-        if session.characters:
-            chars_desc = "\n".join([f"- {c.name}: {c.description}" for c in session.characters])
-            context_parts.append(f"CHARACTERS:\n{chars_desc}")
-
-        # Add Active Quests (Journal)
-        active_quests = [j for j in session.journal_entries if j.entry_type == "quest"]
-        if active_quests:
-            quests_desc = "\n".join([f"- {q.title}: {q.content}" for q in active_quests])
-            context_parts.append(f"ACTIVE QUESTS:\n{quests_desc}")
-
-        # Add Recent Chat History (Limit to last 10-20 messages to fit context)
-        # We need to fetch them sorted by time
-        recent_messages = self.db.exec(
-            select(ChatMessage)
-            .where(ChatMessage.session_id == session.id)
-            .order_by(ChatMessage.timestamp.desc())
-            .limit(20)
-        ).all()
-        
-        # Reverse back to chronological order
-        recent_messages = recent_messages[::-1]
-        
-        history_text = "\n".join([f"{m.role.upper()}: {m.content}" for m in recent_messages])
-        context_parts.append(f"RECENT HISTORY:\n{history_text}")
-
-        return "\n\n".join(context_parts)
-
-    def _update_world_state(self, session: GameSession, user_input: str, ai_response_text: str):
-        """Extracts updates and saves them to Journal/Characters."""
-        # Fetch existing state to pass to LLM
-        existing_quests = [j for j in session.journal_entries if j.entry_type == "quest"]
-        existing_lore = [j for j in session.journal_entries if j.entry_type == "lore"]
-        existing_characters = session.characters
-        
-        existing_state = {
-            "quests": existing_quests,
-            "lore": existing_lore,
-            "characters": existing_characters
-        }
-
-        updates = ollama_service.extract_journal_updates(user_input, ai_response_text, existing_state)
-        
-        # Helper to process operations
-        def process_items(items, model_class, type_filter=None):
-            for item in items:
-                op = item.get("operation")
-                name = item.get("name")
-                if not name: continue
-
-                # Find existing
-                query = select(model_class).where(model_class.session_id == session.id)
-                if model_class == Character:
-                    query = query.where(model_class.name == name)
-                else:
-                    query = query.where(model_class.title == name)
-                    if type_filter:
-                        query = query.where(model_class.entry_type == type_filter)
-                
-                existing = self.db.exec(query).first()
-
-                if op == "add":
-                    if not existing:
-                        if model_class == Character:
-                            new_obj = Character(
-                                session_id=session.id,
-                                name=name,
-                                description=item.get("description"),
-                                stats=item.get("stats", {})
-                            )
-                        else:
-                            new_obj = JournalEntry(
-                                session_id=session.id,
-                                title=name,
-                                content=item.get("description"),
-                                entry_type=type_filter
-                            )
-                        self.db.add(new_obj)
-                
-                elif op == "update":
-                    if existing:
-                        if item.get("description"):
-                            if model_class == Character:
-                                existing.description = item.get("description")
-                            else:
-                                existing.content = item.get("description")
-                        if model_class == Character and item.get("stats"):
-                            existing.stats = item.get("stats")
-                        self.db.add(existing)
-                
-                elif op == "delete":
-                    if existing:
-                        self.db.delete(existing)
-
-        # Process Quests
-        process_items(updates.get("quests", []), JournalEntry, "quest")
-        
-        # Process Lore
-        process_items(updates.get("lore", []), JournalEntry, "lore")
-        
-        # Process Characters
-        process_items(updates.get("characters", []), Character)
-            
-        self.db.commit()
-
-    def _check_summarization(self, session: GameSession):
+    def _check_summarization(self, session: GameSession, language: str = "en"):
         """Checks if we need to summarize the history."""
-        # Simple logic: Summarize every 20 messages
+        # Simple logic: Summarize every N messages
         # Or check token count (more complex)
         
         count = self.db.exec(
             select(ChatMessage).where(ChatMessage.session_id == session.id)
         ).all()
         
-        if len(count) > 0 and len(count) % 20 == 0:
+        if len(count) > 0 and len(count) % settings.SUMMARY_THRESHOLD == 0:
             # Trigger summarization
-            # Get all messages since last summary (or all if no summary)
-            # For simplicity, let's just summarize the last 20 messages and append to existing summary
+            # Get the last N messages to add to summary
+            recent_msgs = count[-settings.SUMMARY_THRESHOLD:]
+            recent_text = "\n".join([f"{m.role}: {m.content}" for m in recent_msgs])
             
-            recent_msgs = count[-20:]
-            text_to_summarize = "\n".join([f"{m.role}: {m.content}" for m in recent_msgs])
+            # Replace old summary with new consolidated one that includes previous summary + recent events
+            new_summary = ollama_service.summarize_context(
+                recent_text, 
+                previous_summary=session.summary,
+                language=language
+            )
             
-            new_summary_chunk = ollama_service.summarize_context(text_to_summarize)
-            
-            if session.summary:
-                session.summary += f"\n\n{new_summary_chunk}"
-            else:
-                session.summary = new_summary_chunk
+            session.summary = new_summary
             
             self.db.add(session)
             self.db.commit()
+
+    def undo_last_move(self, session_id: int):
+        """
+        Undoes the last move by deleting the last user message and all subsequent messages.
+        Note: This does not currently revert Journal/Character changes.
+        """
+        # Find the last user message
+        last_user_msg = self.db.exec(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session_id)
+            .where(ChatMessage.role == "user")
+            .order_by(ChatMessage.timestamp.desc())  # type: ignore[attr-defined]
+            .limit(1)
+        ).first()
+
+        if not last_user_msg:
+            return False
+
+        # Delete this message and all subsequent messages
+        msgs_to_delete = self.db.exec(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session_id)
+            .where(ChatMessage.timestamp >= last_user_msg.timestamp)
+        ).all()
+
+        # Collect IDs of messages to be deleted
+        msg_ids = [m.id for m in msgs_to_delete]
+
+        # Fetch StateChangeLogs for these messages
+        logs = self.db.exec(
+            select(StateChangeLog)
+            .where(StateChangeLog.message_id.in_(msg_ids))  # type: ignore[attr-defined]
+            .order_by(StateChangeLog.id.desc())  # type: ignore[attr-defined, union-attr]
+        ).all()
+
+        # Revert changes
+        for log in logs:
+            if log.operation == "create":
+                # Undo create -> delete
+                entity = self.db.get(JournalEntry, log.entity_id)
+                if entity:
+                    self.db.delete(entity)
+            
+            elif log.operation == "update":
+                # Undo update -> restore previous state
+                entity = self.db.get(JournalEntry, log.entity_id)
+                if entity and log.previous_state:
+                    for key, value in log.previous_state.items():
+                        if key == "created_at":
+                            value = datetime.fromisoformat(value)
+                        setattr(entity, key, value)
+                    self.db.add(entity)
+            
+            elif log.operation == "delete":
+                # Undo delete -> recreate
+                if log.previous_state:
+                    # Add session_id back as it might not be in previous_state
+                    data = log.previous_state.copy()
+                    data["session_id"] = session_id
+                    
+                    new_entry = JournalEntry(**data)
+                    self.db.add(new_entry)
+            
+            # Delete the log entry
+            self.db.delete(log)
+
+        for msg in msgs_to_delete:
+            self.db.delete(msg)
+        
+        self.db.commit()
+        return True

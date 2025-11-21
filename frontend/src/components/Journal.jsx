@@ -14,12 +14,16 @@ import {
     Groups as PeopleIcon,
     MenuBook as BookIcon,
 } from '@mui/icons-material';
+import { useLanguage } from '../lib/LanguageContext';
 
-const Journal = ({ journalEntries, characters }) => {
+const Journal = ({ journalEntries }) => {
     const [activeTab, setActiveTab] = useState(0);
+    const { t } = useLanguage();
 
     const quests = journalEntries.filter((e) => e.entry_type === 'quest');
     const lore = journalEntries.filter((e) => e.entry_type === 'lore');
+    const characters = journalEntries.filter((e) => e.entry_type === 'character');
+
 
     const handleTabChange = (event, newValue) => {
         setActiveTab(newValue);
@@ -37,9 +41,9 @@ const Journal = ({ journalEntries, characters }) => {
                     bgcolor: 'background.paper',
                 }}
             >
-                <Tab icon={<ScrollIcon fontSize="small" />} label="Quests" iconPosition="start" />
-                <Tab icon={<PeopleIcon fontSize="small" />} label="Characters" iconPosition="start" />
-                <Tab icon={<BookIcon fontSize="small" />} label="Lore" iconPosition="start" />
+                <Tab icon={<ScrollIcon fontSize="small" />} label={t('tab_quests')} iconPosition="start" />
+                <Tab icon={<PeopleIcon fontSize="small" />} label={t('tab_characters')} iconPosition="start" />
+                <Tab icon={<BookIcon fontSize="small" />} label={t('tab_lore')} iconPosition="start" />
             </Tabs>
 
             <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2 }}>
@@ -48,7 +52,7 @@ const Journal = ({ journalEntries, characters }) => {
                         {quests.length === 0 ? (
                             <Box sx={{ textAlign: 'center', py: 4 }}>
                                 <Typography variant="body2" color="text.secondary">
-                                    No active quests.
+                                    {t('no_active_quests')}
                                 </Typography>
                             </Box>
                         ) : (
@@ -85,7 +89,7 @@ const Journal = ({ journalEntries, characters }) => {
                         {characters.length === 0 ? (
                             <Box sx={{ textAlign: 'center', py: 4 }}>
                                 <Typography variant="body2" color="text.secondary">
-                                    No known characters.
+                                    {t('no_known_characters')}
                                 </Typography>
                             </Box>
                         ) : (
@@ -105,25 +109,11 @@ const Journal = ({ journalEntries, characters }) => {
                                             gutterBottom
                                             sx={{ color: 'secondary.light', fontWeight: 600 }}
                                         >
-                                            {char.name}
+                                            {char.title}
                                         </Typography>
-                                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2, lineHeight: 1.6 }}>
-                                            {char.description}
+                                        <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+                                            {char.content}
                                         </Typography>
-                                        {char.stats && Object.keys(char.stats).length > 0 && (
-                                            <Box sx={{ pt: 1, borderTop: 1, borderColor: 'divider' }}>
-                                                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                                                    {Object.entries(char.stats).map(([key, val]) => (
-                                                        <Chip
-                                                            key={key}
-                                                            label={`${key.toUpperCase()}: ${val}`}
-                                                            size="small"
-                                                            variant="outlined"
-                                                        />
-                                                    ))}
-                                                </Stack>
-                                            </Box>
-                                        )}
                                     </CardContent>
                                 </Card>
                             ))
@@ -136,7 +126,7 @@ const Journal = ({ journalEntries, characters }) => {
                         {lore.length === 0 ? (
                             <Box sx={{ textAlign: 'center', py: 4 }}>
                                 <Typography variant="body2" color="text.secondary">
-                                    No lore entries.
+                                    {t('no_lore_entries')}
                                 </Typography>
                             </Box>
                         ) : (
