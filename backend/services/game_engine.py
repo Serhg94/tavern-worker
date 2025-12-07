@@ -146,6 +146,8 @@ class GameEngine:
                     # Add session_id back as it might not be in previous_state
                     data = log.previous_state.copy()
                     data["session_id"] = session_id
+                    if "created_at" in data:
+                        data["created_at"] = datetime.fromisoformat(data["created_at"])
                     
                     new_entry = JournalEntry(**data)
                     self.db.add(new_entry)
