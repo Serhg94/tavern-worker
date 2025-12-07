@@ -10,12 +10,16 @@ services:
       - OLLAMA_MODEL=hf.co/LatitudeGames/Wayfarer-12B-GGUF:IQ4_XS
       - LOG_LEVEL=DEBUG
       - DATABASE_FILE=database/database.db
+      - CORS_ORIGINS=https://localhost
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
   frontend:
     build: ./frontend
+    volumes:
+      - ./certs:/etc/nginx/certs
     ports:
       - "80:80"
+      - "443:443"
     depends_on:
       - backend

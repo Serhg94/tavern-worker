@@ -23,11 +23,6 @@ class ChatMessage(SQLModel, table=True):
     session: GameSession = Relationship(back_populates="messages")
 
 class JournalEntry(SQLModel, table=True):
-    # Entity metadata
-    entity_type_name: str = "journal_entry"
-    name_field: str = "title"
-    content_field: str = "content"
-    
     id: int | None = Field(default=None, primary_key=True)
     session_id: int = Field(foreign_key="gamesession.id")
     title: str

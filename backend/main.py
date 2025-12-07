@@ -37,15 +37,9 @@ async def log_exceptions(request: Request, call_next):
             content={"detail": str(e), "type": type(e).__name__}
         )
 
-origins = [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "http://localhost",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
